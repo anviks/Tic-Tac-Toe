@@ -3,23 +3,24 @@ use std::time::Duration;
 use std::{thread, vec};
 use colored::Colorize;
 
-const X: [&str; 4] = [
+const X: [&str; 3] = [
     "     ",
     r"  \/  ",
-    r"  /\  ",
-    "      "];
+    r"  /\  "];
 
-const O: [&str; 4] = [
+const O: [&str; 3] = [
     " __  ",
     r" /  \ ",
-    r" \__/ ",
-    "      "];
+    r" \__/ "];
 
-const EMPTY: [&str; 4] = [
+const EMPTY: [&str; 3] = [
     "     ",
     "      ",
-    "      ",
     "      "];
+
+const NUM_TO_PLAYER: [char; 2] = ['X', 'O'];
+const POST_INVALID_INPUT_DELAY: Duration = Duration::from_millis(1500);
+const POST_VICTORY_DELAY: Duration = Duration::from_millis(2000);
 
 macro_rules! input {
     () => {
@@ -40,7 +41,12 @@ macro_rules! check_winner {
     };
 }
 
-fn is_solved(board: [[i8; 3]; 3]) -> i8 {
+/// Returns the status of the board.
+/// -1: Game is still ongoing
+/// 0: Draw
+/// 1: X won
+/// 2: O won
+fn board_status(board: [[i8; 3]; 3]) -> i8 {
     let mut has_empty = false;
 
     for i in 0..3 {
@@ -61,14 +67,18 @@ fn is_solved(board: [[i8; 3]; 3]) -> i8 {
 
 fn render_board(board: [[i8; 3]; 3]) {
     println!();
-    let mut result = vec![vec![vec![String::new(); 4]; 3]; 3];
+    // Outer array represents the 3 rows of squares on the board, 
+    // inner array represents the 3 columns of squares in each row and
+    // the innermost array represents the 3 rows of each square
+    let mut result = vec![vec![vec![String::new(); 3]; 3]; 3];
 
     for i in 0..3 {
         for j in 0..3 {
-            for k in 0..4 {
+            for k in 0..3 {
                 let mut row_seg = String::new();
 
                 if k == 0 {
+                    // Add the square number (1 - 9)
                     row_seg += &*(i * 3 + j + 1).to_string();
                 }
 
@@ -87,7 +97,7 @@ fn render_board(board: [[i8; 3]; 3]) {
     for i in 0..3 {
         for k in 0..3 {
             for j in 0..3 {
-                thread::sleep(Duration::from_millis(20));
+                thread::sleep(Duration::from_millis(10));
                 print!("{}", result[i][j][k]);
                 if j != 2 { print!("|"); }
             }
@@ -97,101 +107,113 @@ fn render_board(board: [[i8; 3]; 3]) {
     }
 }
 
-fn play() {
+fn initialize_game() -> usize {
     println!("{}", "Welcome to Tic-Tac-Toe!\nPress Enter to continue...".purple());
-
     input!();
 
-    let num_to_x_o: [(i8, char); 2] = [(1, 'X'), (2, 'O')];
-    let mut current_pointer;
+    let starting_player_index;
 
     loop {
         println!("{}", "Would you like for X or O to start the game?".bright_purple());
         input!(starting_player);
 
-        if starting_player.to_lowercase() == String::from("x") {
-            current_pointer = 0;
-            break;
-        } else if starting_player.to_lowercase() == String::from("o") {
-            current_pointer = 1;
-            break;
-        }
-
-        println!("🗿");
-    }
-
-    let mut board: [[i8; 3]; 3] = [[0, 0, 0], [0, 0, 0], [0, 0, 0]];
-
-    while is_solved(board) == -1 {
-        render_board(board);
-
-        let message = format!("\nWhere would you like to place {}? (1-9)", num_to_x_o[current_pointer].1);
-        println!("{}", message.blue());
-        input!(input);
-
-        let input_char = input.chars().next();
-        let square_index;
-
-        match input_char {
-            Some(c) => square_index = match c.to_digit(10) {
-                Some(0) => {
-                    println!("{}", "\nThere's no square with number 0.".red());
-                    thread::sleep(Duration::from_millis(1500));
-                    continue;
-                }
-                Some(d) => { (d - 1) as usize }
-                None => {
-                    println!("{}", "\nPlease input a number, not some random text.".red());
-                    thread::sleep(Duration::from_millis(1500));
-                    continue;
-                }
-            },
-            None => {
-                println!("{}", "\nPlease input a number.".red());
-                thread::sleep(Duration::from_millis(1500));
+        starting_player_index = match starting_player.to_lowercase().as_str() {
+            "x" => 0,
+            "o" => 1,
+            _ => {
+                println!("🗿");
                 continue;
             }
-        }
+        };
 
-        let i = square_index / 3;
-        let j = square_index % 3;
-
-        if board[i][j] == 0 {
-            board[i][j] = num_to_x_o[current_pointer].0;
-        } else {
-            println!("{}", Colorize::red("That square is already occupied.\n"));
-            thread::sleep(Duration::from_millis(1500));
-            continue;
-        }
-
-        current_pointer = (current_pointer + 1) % 2;
+        break;
     }
 
-    render_board(board);
-    let result = is_solved(board);
+    starting_player_index
+}
 
-    if result == 0 {
-        println!("{}", "\nDamn. It's a draw.".yellow().bold())
-    } else {
-        let message = format!("\nCongratulations, {} won!\n", num_to_x_o[(result - 1) as usize].1);
-        println!("{}", message.green().bold());
+fn validate_choice(input_char: Option<char>) -> Option<usize> {
+    match input_char {
+        Some(c) => {
+            match c.to_digit(10) {
+                Some(0) => {
+                    println!("{}", "\nThere's no square with number 0.".red());
+                    thread::sleep(POST_INVALID_INPUT_DELAY);
+                    None
+                }
+                Some(d) => Some((d - 1) as usize),
+                None => {
+                    println!("{}", "\nPlease input a number, not some random text.".red());
+                    thread::sleep(POST_INVALID_INPUT_DELAY);
+                    None
+                }
+            }
+        }
+        None => {
+            println!("{}", "\nPlease input a number.".red());
+            thread::sleep(POST_INVALID_INPUT_DELAY);
+            None
+        }
     }
+}
 
-    thread::sleep(Duration::from_millis(2000));
+fn play() {
+    'game: loop {
+        let mut current_player_index = initialize_game();
+        let mut board: [[i8; 3]; 3] = [[0, 0, 0], [0, 0, 0], [0, 0, 0]];
+        let mut status = board_status(board);
+        render_board(board);
+        
+        while status == -1 {
+            let message = format!("\nWhere would you like to place {}? (1-9)", NUM_TO_PLAYER[current_player_index]);
+            println!("{}", message.blue());
+            input!(input);
 
-    loop {
-        println!("{}", "Would you like to play again? (Y/N)".yellow());
-        input!(again);
+            let input_char = input.chars().next();
+            let square_index = match validate_choice(input_char) {
+                None => continue,
+                Some(n) => n
+            };
 
-        again = again.to_lowercase();
-        if again == "y" {
-            print!("{esc}c", esc = 27 as char);
-            play();
-        } else if again == "n" {
-            break;
+            let i = square_index / 3;
+            let j = square_index % 3;
+
+            if board[i][j] == 0 {
+                board[i][j] = (current_player_index + 1) as i8;
+            } else {
+                println!("{}", Colorize::red("That square is already occupied.\n"));
+                thread::sleep(POST_INVALID_INPUT_DELAY);
+                continue;
+            }
+
+            current_player_index = (current_player_index + 1) % 2;
+            render_board(board);
+            status = board_status(board);
+        }
+
+        if status == 0 {
+            println!("{}", "\nDamn. It's a draw.\n".yellow().bold())
         } else {
-            println!("{}", "Wut?".bright_cyan());
-            thread::sleep(Duration::from_millis(1000));
+            let message = format!("\nCongratulations, {} won!\n", NUM_TO_PLAYER[(status - 1) as usize]);
+            println!("{}", message.green().bold());
+        }
+
+        thread::sleep(POST_VICTORY_DELAY);
+
+        loop {
+            println!("{}", "Would you like to play again? (Y/N)".yellow());
+            input!(again);
+
+            again = again.to_lowercase();
+            if again == "y" {
+                print!("{esc}c", esc = 27 as char);
+                continue 'game;
+            } else if again == "n" {
+                return;
+            } else {
+                println!("{}", "Wut?".bright_cyan());
+                thread::sleep(POST_INVALID_INPUT_DELAY);
+            }
         }
     }
 }
